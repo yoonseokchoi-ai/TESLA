@@ -1,25 +1,29 @@
-# Ignore large folders
+# Data & outputs
 data/
+outputs/
 ckpts/
 logs/
-outputs/
 
-# ckpts 아래 모든 pt 무시
-echo "ckpts/**/*.pt" >> .gitignore  
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
 
-# Ignore common system files
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
 
-# Ignore Python cache
-__pycache__/
-*.pyc
+# Logs
+*.log
 
-# VSCode settings (if any)
-.vscode/
-
-# ipynb 파일 무시
-*.ipynb
-
-# txt 파일 무시
-*.txt
+# Wandb
+wandb/

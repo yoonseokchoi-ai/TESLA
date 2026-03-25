@@ -2,22 +2,16 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from torch import nn
-from torch.autograd import Variable
+from typing import Optional, Sequence, Tuple, Union
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-# from monai.networks.blocks import UnetBasicBlock
-from typing import Optional, Sequence, Tuple, Union
+from torch import nn
+
 from monai.networks.blocks.convolutions import Convolution
 from monai.networks.layers.factories import Act, Norm
 from monai.networks.layers.utils import get_act_layer, get_norm_layer
-import numpy as np
-
-try:
-    from itertools import izip as zip
-except ImportError: # will be 3.x series
-    pass
-
 
 
 ##################################################################################
@@ -41,7 +35,7 @@ class PatchGAN_Dis(nn.Module):
             *discriminator_block(64, 128),
             *discriminator_block(128, 256),
             *discriminator_block(256, 512),
-            nn.ZeroPad2d((1, 0, 1, 0)), # zero padding을 (좌, 우, 위, 아래)에 (한줄, x, 한줄, x) 하겠다는 뜻
+            nn.ZeroPad2d((1, 0, 1, 0)),
             nn.Conv2d(512, 1, kernel_size=4, padding=1, bias=False)
         )
 
@@ -49,100 +43,7 @@ class PatchGAN_Dis(nn.Module):
         # Concatenate image and condition image by channels to produce input
         img_input = torch.cat((img, img_condition), 1)
         return self.model(img_input)
-    
 
-##################################################################################
-# Discriminator
-##################################################################################
-
-class MsImageDis(nn.Module):
-    # Multi-scale discriminator architecture
-    def __init__(self, input_dim, config):
-        super(MsImageDis, self).__init__()
-        self.n_layer    = config.dis_n_layer
-        self.gan_type   = config.dis_gan_type
-        self.dim        = config.dis_dim
-        self.norm       = config.dis_norm
-        self.activ      = config.dis_activ
-        self.num_scales = config.dis_num_scales
-        self.pad_type   = config.dis_pad_type
-        self.input_dim  = input_dim
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
-        self.cnns = nn.ModuleList()
-        for _ in range(self.num_scales):
-            self.cnns.append(self._make_net())
-
-    def _make_net(self):
-        dim = self.dim
-        cnn_x = []
-        cnn_x += [Conv2dBlock( input_dim    = self.input_dim, 
-                               output_dim   = dim, 
-                               kernel_size  = 4, 
-                               stride       = 2, 
-                               padding      = 1, 
-                               norm         = 'none', 
-                               activation   = self.activ, 
-                               pad_type     = self.pad_type )]
-        
-        for i in range(self.n_layer - 1):
-            cnn_x += [Conv2dBlock( input_dim    = dim, 
-                                   output_dim   = dim * 2, 
-                                   kernel_size  = 4, 
-                                   stride       = 2, 
-                                   padding      = 1, 
-                                   norm         = self.norm, 
-                                   activation   = self.activ, 
-                                   pad_type     = self.pad_type)]
-            dim *= 2
-        cnn_x += [nn.Conv2d( in_channels  = dim, 
-                             out_channels = 1, 
-                             kernel_size  = 1, 
-                             stride       = 1, 
-                             padding      = 0 )]
-        
-        cnn_x = nn.Sequential(*cnn_x)
-        return cnn_x
-
-    def forward(self, x):  # 아 이렇게 하면 Discriminator의 각 layer 마다
-                           # 이미지를 넣고 output을 뽑아내고 계속
-                           # append해서 return하는 거구나
-        outputs = []
-        for model in self.cnns:
-            outputs.append(model(x))
-            x = self.downsample(x)
-        return outputs
-
-    def calc_dis_loss(self, input_fake, input_real):
-        # calculate the loss to train D
-        outs0 = self.forward(input_fake)
-        outs1 = self.forward(input_real)
-        loss = 0
-
-        for it, (out0, out1) in enumerate(zip(outs0, outs1)):
-            if self.gan_type == 'lsgan':
-                loss += torch.mean((out0 - 0)**2) + torch.mean((out1 - 1)**2)
-            elif self.gan_type == 'nsgan':
-                all0 = torch.zeros_like(out0.data, requires_grad=False).cuda()
-                all1 = torch.ones_like(out1.data, requires_grad=False).cuda()
-                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all0) +
-                                   F.binary_cross_entropy(F.sigmoid(out1), all1))
-            else:
-                assert 0, "Unsupported GAN type: {}".format(self.gan_type)
-        return loss
-
-    def calc_gen_loss(self, input_fake):
-        # calculate the loss to train G
-        outs0 = self.forward(input_fake)
-        loss = 0
-        for it, (out0) in enumerate(outs0):
-            if self.gan_type == 'lsgan':
-                loss += torch.mean((out0 - 1)**2) # LSGAN
-            elif self.gan_type == 'nsgan':
-                all1 = torch.ones_like(out0.data, requires_grad=False).cuda()
-                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
-            else:
-                assert 0, "Unsupported GAN type: {}".format(self.gan_type)
-        return loss
 
 ##################################################################################
 # Generator
@@ -152,13 +53,13 @@ class AdaINGen(nn.Module):
     # AdaIN auto-encoder architecture
     def __init__(self, input_dim, config):
         super(AdaINGen, self).__init__()
-        self.dim          = config.gen_dim            # 64
-        self.style_dim    = config.gen_style_dim      # 8
-        self.n_downsample = config.gen_n_downsample   # 2
-        self.n_res        = config.gen_n_res          # 4
-        self.activ        = config.gen_activ          # "relu"
-        self.pad_type     = config.gen_pad_type       # "reflect"
-        self.mlp_dim      = config.gen_mlp_dim        # "256"
+        self.dim          = config.gen_dim
+        self.style_dim    = config.gen_style_dim
+        self.n_downsample = config.gen_n_downsample
+        self.n_res        = config.gen_n_res
+        self.activ        = config.gen_activ
+        self.pad_type     = config.gen_pad_type
+        self.mlp_dim      = config.gen_mlp_dim
 
         # style encoder
         self.enc_style = StyleEncoder( n_downsample = 4,
@@ -168,16 +69,16 @@ class AdaINGen(nn.Module):
                                        norm         = 'none',
                                        activ        = self.activ,
                                        pad_type     = self.pad_type )
- 
+
         # content encoder
         self.enc_content = ContentEncoder( n_downsample = self.n_downsample,
                                            n_res        = self.n_res,
                                            input_dim    = input_dim,
-                                           dim          = self.dim, 
-                                           norm         = 'in', 
-                                           activ        = self.activ, 
+                                           dim          = self.dim,
+                                           norm         = 'in',
+                                           activ        = self.activ,
                                            pad_type     = self.pad_type )
-        
+
         # Conv block
         self.conv2d_3x3_1st = UnetBasicBlock(spatial_dims=2,
                                          in_channels=3,
@@ -189,42 +90,18 @@ class AdaINGen(nn.Module):
                                          out_channels=256,
                                          kernel_size=3,
                                          stride=1)
-        # self.conv2d_1x1_3rd = UnetBasicBlock(spatial_dims=2,
-        #                                  in_channels=512,
-        #                                  out_channels=3,
-        #                                  kernel_size=1,
-        #                                  stride=1)
-        # self.conv2d_1x1_Res = UnetBasicBlock(spatial_dims=2,
-        #                                  in_channels=512,
-        #                                  out_channels=1,
-        #                                  kernel_size=1,
-        #                                  stride=1)
-        
+
         self.out1 = UnetOutBlock( spatial_dims=2,
                                   in_channels=3,
                                   out_channels=1,
                                   )
-        # self.out2 = UnetOutBlock( spatial_dims=2,
-        #                           in_channels=256,
-        #                           out_channels=3,
-        #                           )
-        # self.out3 = UnetOutBlock( spatial_dims=2,
-        #                           in_channels=512,
-        #                           out_channels=3,
-        #                           )
-        # self.out4 = UnetOutBlock( spatial_dims=2,
-        #                           in_channels=512,
-        #                           out_channels=3,
-        #                           )
-    
-        
-        # MUNIT 원본에서는 input이 3ch이면 output도 3ch인데 1ch로 수정했음
+
         self.dec = Decoder(n_upsample = self.n_downsample,
-                           n_res      = self.n_res, 
-                           dim        = self.enc_content.output_dim, 
-                           output_dim = 1, 
-                           res_norm   = 'adain', 
-                           activ      = self.activ, 
+                           n_res      = self.n_res,
+                           dim        = self.enc_content.output_dim,
+                           output_dim = 1,
+                           res_norm   = 'adain',
+                           activ      = self.activ,
                            pad_type   = self.pad_type)
 
         # MLP to generate AdaIN parameters
@@ -245,8 +122,8 @@ class AdaINGen(nn.Module):
     def decode(self, content, style):
         # decode content and style codes to an image
         adain_params = self.mlp(style)
-        self.assign_adain_params(adain_params, self.dec)  # 여기서 style code를 쓴 것
-        images = self.dec(content)  # style code가 AdaIN에 할당되어있으니 Content code를 사용해서 image를 recon하는 것
+        self.assign_adain_params(adain_params, self.dec)
+        images = self.dec(content)
         return images
 
     def assign_adain_params(self, adain_params, model):
@@ -269,40 +146,6 @@ class AdaINGen(nn.Module):
         return num_adain_params
 
 
-class VAEGen(nn.Module):
-    # VAE architecture
-    def __init__(self, input_dim, params):
-        super(VAEGen, self).__init__()
-        dim = params['dim']
-        n_downsample = params['n_downsample']
-        n_res = params['n_res']
-        activ = params['activ']
-        pad_type = params['pad_type']
-
-        # content encoder
-        self.enc = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
-        self.dec = Decoder(n_downsample, n_res, self.enc.output_dim, input_dim, res_norm='in', activ=activ, pad_type=pad_type)
-
-    def forward(self, images):
-        # This is a reduced VAE implementation where we assume the outputs are multivariate Gaussian distribution with mean = hiddens and std_dev = all ones.
-        hiddens = self.encode(images)
-        if self.training == True:
-            noise = torch.randn(hiddens.size()).cuda(hiddens.data.get_device())
-            images_recon = self.decode(hiddens + noise)
-        else:
-            images_recon = self.decode(hiddens)
-        return images_recon, hiddens
-
-    def encode(self, images):
-        hiddens = self.enc(images)
-        noise = torch.randn(hiddens.size()).cuda(hiddens.data.get_device())
-        return hiddens, noise
-
-    def decode(self, hiddens):
-        images = self.dec(hiddens)
-        return images
-
-
 ##################################################################################
 # Encoder and Decoders
 ##################################################################################
@@ -311,40 +154,40 @@ class StyleEncoder(nn.Module):
     def __init__(self, n_downsample, input_dim, dim, style_dim, norm, activ, pad_type):
         super(StyleEncoder, self).__init__()
         self.model = []
-        self.model +=  [Conv2dBlock( input_dim   = input_dim, 
-                                     output_dim  = dim, 
-                                     kernel_size = 7, 
-                                     stride      = 1, 
-                                     padding     = 3, 
-                                     norm        = norm, 
-                                     activation  = activ, 
+        self.model +=  [Conv2dBlock( input_dim   = input_dim,
+                                     output_dim  = dim,
+                                     kernel_size = 7,
+                                     stride      = 1,
+                                     padding     = 3,
+                                     norm        = norm,
+                                     activation  = activ,
                                      pad_type    = pad_type ) ]
         for i in range(2):
             self.model += [Conv2dBlock( input_dim   = dim,
-                                        output_dim  = 2 * dim, 
-                                        kernel_size = 4, 
-                                        stride      = 2, 
-                                        padding     = 1, 
-                                        norm        = norm, 
-                                        activation  = activ, 
+                                        output_dim  = 2 * dim,
+                                        kernel_size = 4,
+                                        stride      = 2,
+                                        padding     = 1,
+                                        norm        = norm,
+                                        activation  = activ,
                                         pad_type    = pad_type)]
             dim *= 2
 
         for i in range(n_downsample - 2):
             self.model += [ Conv2dBlock( input_dim   = dim,
-                                         output_dim  = dim, 
-                                         kernel_size = 4, 
-                                         stride      = 2, 
-                                         padding     = 1, 
-                                         norm        = norm, 
-                                         activation  = activ, 
-                                         pad_type    = pad_type ) ] # 여기까지가 StyleEncoder down-sampling
-            
-        self.model += [ nn.AdaptiveAvgPool2d(output_size = 1) ] # global average pooling
-        self.model += [ nn.Conv2d( in_channels  = dim, 
-                                   out_channels = style_dim, 
-                                   kernel_size  = 1, 
-                                   stride       = 1, 
+                                         output_dim  = dim,
+                                         kernel_size = 4,
+                                         stride      = 2,
+                                         padding     = 1,
+                                         norm        = norm,
+                                         activation  = activ,
+                                         pad_type    = pad_type ) ]
+
+        self.model += [ nn.AdaptiveAvgPool2d(output_size = 1) ]  # global average pooling
+        self.model += [ nn.Conv2d( in_channels  = dim,
+                                   out_channels = style_dim,
+                                   kernel_size  = 1,
+                                   stride       = 1,
                                    padding      = 0 ) ]
         self.model = nn.Sequential(*self.model)
         self.output_dim = dim
@@ -356,13 +199,13 @@ class ContentEncoder(nn.Module):
     def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
         super(ContentEncoder, self).__init__()
         self.model = []
-        self.model += [Conv2dBlock( input_dim   = input_dim, 
-                                    output_dim  = dim, 
-                                    kernel_size = 7, 
-                                    stride      = 1, 
-                                    padding     = 3, 
-                                    norm        = norm, 
-                                    activation  = activ, 
+        self.model += [Conv2dBlock( input_dim   = input_dim,
+                                    output_dim  = dim,
+                                    kernel_size = 7,
+                                    stride      = 1,
+                                    padding     = 3,
+                                    norm        = norm,
+                                    activation  = activ,
                                     pad_type    = pad_type)]
         self.content_encoder_layer = []
 
@@ -371,54 +214,39 @@ class ContentEncoder(nn.Module):
             self.model += [Conv2dBlock( input_dim   = dim,
                                         output_dim  = 2 * dim,
                                         kernel_size = 4,
-                                        stride      = 2, 
+                                        stride      = 2,
                                         padding     = 1,
-                                        norm        = norm, 
-                                        activation  = activ, 
+                                        norm        = norm,
+                                        activation  = activ,
                                         pad_type    = pad_type )]
             dim *= 2
-            self.content_encoder_layer.append(self.model[-1]) # 최초에 self.model에 append 된 Conv2dBlock은
-                                                # down-sample block이 아니었기 때문에
-                                                # self.model[-1]을 하는 것
-                                                # for 문 돌때마다 [Conv2d, Conv2d_downsample, ...]
-                                                # 이렇게 쌓이니까 마지막꺼를 
-                                                # self.content_encoder_layer에 append 하는 것
+            self.content_encoder_layer.append(self.model[-1])
 
         # residual blocks
-        self.model += [ResBlocks( num_blocks = n_res, 
-                                  dim        = dim, 
-                                  norm       = norm, 
-                                  activation = activ, 
+        self.model += [ResBlocks( num_blocks = n_res,
+                                  dim        = dim,
+                                  norm       = norm,
+                                  activation = activ,
                                   pad_type   = pad_type)]
-        
-        self.content_encoder_layer.append(self.model[-1])
-        
-        self.model = nn.Sequential(*self.model)
-        self.output_dim = dim  # self.output_dim = output의 ch 수
 
+        self.content_encoder_layer.append(self.model[-1])
+
+        self.model = nn.Sequential(*self.model)
+        self.output_dim = dim
 
     def forward(self, x):
         """
-        What ContentNet returns..
-        - down-sampling layer의 각 output:
-            - Multi-level Adversarial learning(Discriminator)을 위해
-            - But, Discriminator로 넣기 전에 1x1 Conv2d로 3ch 맞춰줘야 함
-
-        - 마지막 ResBlocks의 output: 
-            - Decoder의 input으로 넣기위해
+        Returns:
+        - Output from each down-sampling layer (for multi-level adversarial learning)
+        - Output from the final ResBlocks (as input to the Decoder)
         """
-        
         content_code = []
 
-        # 각 layer 별로 output 뽑아서
-        # content_code의 list 안에 담고
-        # return
         for layer in self.model:
             x = layer(x)
-
             if layer in self.content_encoder_layer:
                 content_code.append(x)
-        
+
         return content_code
 
 class Decoder(nn.Module):
@@ -434,20 +262,20 @@ class Decoder(nn.Module):
                             Conv2dBlock( input_dim    = dim,
                                          output_dim   = dim//2,
                                          kernel_size  = 5,
-                                         stride       = 1, 
+                                         stride       = 1,
                                          padding      = 2,
                                          norm         = 'ln',
                                          activation   = activ,
                                          pad_type     = pad_type ) ]
             dim //= 2
         # use reflection padding in the last conv layer
-        self.model += [Conv2dBlock(input_dim   = dim, 
-                                   output_dim  = output_dim, 
-                                   kernel_size = 7, 
-                                   stride      = 1, 
-                                   padding     = 3, 
-                                   norm        = 'none', 
-                                   activation  = 'tanh', 
+        self.model += [Conv2dBlock(input_dim   = dim,
+                                   output_dim  = output_dim,
+                                   kernel_size = 7,
+                                   stride      = 1,
+                                   padding     = 3,
+                                   norm        = 'none',
+                                   activation  = 'tanh',
                                    pad_type    = pad_type)]
         self.model = nn.Sequential(*self.model)
 
@@ -520,7 +348,6 @@ class Conv2dBlock(nn.Module):
         if norm == 'bn':
             self.norm = nn.BatchNorm2d(norm_dim)
         elif norm == 'in':
-            #self.norm = nn.InstanceNorm2d(norm_dim, track_running_stats=True)
             self.norm = nn.InstanceNorm2d(norm_dim)
         elif norm == 'ln':
             self.norm = LayerNorm(norm_dim)
@@ -609,60 +436,6 @@ class LinearBlock(nn.Module):
         return out
 
 ##################################################################################
-# VGG network definition
-##################################################################################
-class Vgg16(nn.Module):
-    def __init__(self):
-        super(Vgg16, self).__init__()
-        self.conv1_1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
-        self.conv1_2 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
-
-        self.conv2_1 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
-        self.conv2_2 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
-
-        self.conv3_1 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
-        self.conv3_2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
-        self.conv3_3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
-
-        self.conv4_1 = nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1)
-        self.conv4_2 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.conv4_3 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
-
-        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
-
-    def forward(self, X):
-        h = F.relu(self.conv1_1(X), inplace=True)
-        h = F.relu(self.conv1_2(h), inplace=True)
-        # relu1_2 = h
-        h = F.max_pool2d(h, kernel_size=2, stride=2)
-
-        h = F.relu(self.conv2_1(h), inplace=True)
-        h = F.relu(self.conv2_2(h), inplace=True)
-        # relu2_2 = h
-        h = F.max_pool2d(h, kernel_size=2, stride=2)
-
-        h = F.relu(self.conv3_1(h), inplace=True)
-        h = F.relu(self.conv3_2(h), inplace=True)
-        h = F.relu(self.conv3_3(h), inplace=True)
-        # relu3_3 = h
-        h = F.max_pool2d(h, kernel_size=2, stride=2)
-
-        h = F.relu(self.conv4_1(h), inplace=True)
-        h = F.relu(self.conv4_2(h), inplace=True)
-        h = F.relu(self.conv4_3(h), inplace=True)
-        # relu4_3 = h
-
-        h = F.relu(self.conv5_1(h), inplace=True)
-        h = F.relu(self.conv5_2(h), inplace=True)
-        h = F.relu(self.conv5_3(h), inplace=True)
-        relu5_3 = h
-
-        return relu5_3
-        # return [relu1_2, relu2_2, relu3_3, relu4_3]
-
-##################################################################################
 # Normalization layers
 ##################################################################################
 class AdaptiveInstanceNorm2d(nn.Module):
@@ -710,7 +483,6 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         shape = [-1] + [1] * (x.dim() - 1)
-        # print(x.size())
         if x.size(0) == 1:
             # These two lines run much faster in pytorch 0.4 than the two lines listed below.
             mean = x.view(-1).mean().view(*shape)
@@ -753,7 +525,6 @@ class SpectralNorm(nn.Module):
             v.data = l2normalize(torch.mv(torch.t(w.view(height,-1).data), u.data))
             u.data = l2normalize(torch.mv(w.view(height,-1).data, v.data))
 
-        # sigma = torch.dot(u.data, torch.mv(w.view(height,-1).data, v.data))
         sigma = u.dot(w.view(height, -1).mv(v))
         setattr(self.module, self.name, w / sigma.expand_as(w))
 
@@ -765,7 +536,6 @@ class SpectralNorm(nn.Module):
             return True
         except AttributeError:
             return False
-
 
     def _make_params(self):
         w = getattr(self.module, self.name)
@@ -785,57 +555,18 @@ class SpectralNorm(nn.Module):
         self.module.register_parameter(self.name + "_v", v)
         self.module.register_parameter(self.name + "_bar", w_bar)
 
-
     def forward(self, *args):
         self._update_u_v()
         return self.module.forward(*args)
-    
-class GANLoss(nn.Module):  # Modified (RKH) to get rid of tensor, and achieve it in a device-agnostic manner
-    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
-        super(GANLoss, self).__init__()
-        self.real_label = target_real_label
-        self.fake_label = target_fake_label
-        self.real_label_var = None
-        self.fake_label_var = None
 
-        # lsGAN or vanillaGAN
-        if use_lsgan:
-            self.loss = nn.MSELoss()
-        else:
-            self.loss = nn.BCELoss()
 
-    def get_target_tensor(self, input, target_is_real):
-        target_tensor = None
-        if target_is_real:
-            create_label = (self.real_label_var is None) or (
-                self.real_label_var.numel() != input.numel()
-            )
-            if create_label:
-                real_tensor = torch.full_like(
-                    input, self.real_label, device=input.device
-                )
-                self.real_label_var = Variable(real_tensor, requires_grad=False)
-            target_tensor = self.real_label_var
-        else:
-            create_label = (self.fake_label_var is None) or (
-                self.fake_label_var.numel() != input.numel()
-            )
-            if create_label:
-                fake_tensor = torch.full_like(
-                    input, self.fake_label, device=input.device
-                )
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
-            target_tensor = self.fake_label_var
-        return target_tensor
-
-    def __call__(self, input, target_is_real):
-        target_tensor = self.get_target_tensor(input, target_is_real)
-        return self.loss(input, target_tensor)
-    
+##################################################################################
+# UNet Blocks
+##################################################################################
 
 class UnetBasicBlock(nn.Module):
     """
-    A CNN module module that can be used for DynUNet, based on:
+    A CNN module that can be used for DynUNet, based on:
     `Automated Design of Deep Learning Methods for Biomedical Image Segmentation <https://arxiv.org/abs/1904.08128>`_.
     `nnU-Net: Self-adapting Framework for U-Net-Based Medical Image Segmentation <https://arxiv.org/abs/1809.10486>`_.
 
@@ -872,8 +603,6 @@ class UnetBasicBlock(nn.Module):
             dropout=dropout,
             conv_only=True,
         )
-        # 여기서 보면 알 수 있듯이 두번째 conv_block의 stride는 1로 고정이다.
-        # 그래야 spatial dim size를 그대로 유지할 수 있음
         self.conv2 = get_conv_layer(
             spatial_dims, out_channels, out_channels, kernel_size=kernel_size, stride=1, dropout=dropout, conv_only=True
         )
@@ -889,7 +618,7 @@ class UnetBasicBlock(nn.Module):
         out = self.norm2(out)
         out = self.lrelu(out)
         return out
-    
+
 
 class UnetOutBlock(nn.Module):
     def __init__(
@@ -903,9 +632,6 @@ class UnetOutBlock(nn.Module):
     def forward(self, inp):
         return self.conv(inp)
 
-# 결국 get_conv_layer 함수가 하는 역할은
-# monai에 있는 Convolution 함수를 사용해서
-# convolution block을 만드는 것이다.
 
 def get_conv_layer(
     spatial_dims: int,
@@ -924,7 +650,7 @@ def get_conv_layer(
     output_padding = None
     if is_transposed:
         output_padding = get_output_padding(kernel_size, stride, padding)
-    
+
     return Convolution(
         spatial_dims,
         in_channels,

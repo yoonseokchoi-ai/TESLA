@@ -1,0 +1,55 @@
+# =============================================================================
+# TESLA Inference Configuration
+# =============================================================================
+# Usage:
+#   TESLA:        python inference_lightning.py --config configs/tesla_inference.yaml --stage tesla
+#   ContentNet:   python inference_lightning.py --config configs/tesla_inference.yaml --stage contentnet
+#   ProTPSR 2→1:  python inference_lightning.py --config configs/tesla_inference.yaml --stage prog_2to1
+#   ProTPSR 4→2:  python inference_lightning.py --config configs/tesla_inference.yaml --stage prog_4to2
+# =============================================================================
+
+# Checkpoint paths
+ckpt_path:
+  tesla: "ckpts/tesla/lightning/tesla-epoch=0099-val_ssim=0.9198.ckpt"
+  contentnet: "ckpts/contentnet/lightning/contentnet-epoch=0034-val_ssim=0.9982.ckpt"
+  prog_4to2: "ckpts/progressive/lightning/prog_4to2/prog_4to2-epoch=0079-val_ssim=0.9411.ckpt"
+  prog_2to1: "ckpts/progressive/lightning/prog_2to1/prog_2to1-epoch=0099-val_ssim=0.9205.ckpt"
+
+# Output
+output_dir: "outputs/tesla_inference/"
+
+# Device
+gpu: "2"
+
+# Inference settings
+batch_size: 1
+num_workers: 4
+
+# Data (must match training config)
+data:
+  dataset: "IXI"
+  ixi_h5_dir: "./data/ixi/"
+  nb_train_imgs: 4000
+  nb_test_imgs: 1000
+  crf_domain: "t1"
+  sr_scale: 4
+  hr_pd: false
+
+# Model architecture (must match training config)
+model:
+  gen_dim: 64
+  gen_mlp_dim: 256
+  gen_style_dim: 8
+  gen_activ: "relu"
+  gen_n_downsample: 2
+  gen_n_res: 4
+  gen_pad_type: "reflect"
+  input_ch_a: 1
+  input_ch_b: 1
+  dis_dim: 64
+  dis_norm: "none"
+  dis_activ: "lrelu"
+  dis_n_layer: 4
+  dis_gan_type: "lsgan"
+  dis_num_scales: 3
+  dis_pad_type: "reflect"
