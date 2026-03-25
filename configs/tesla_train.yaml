@@ -1,0 +1,129 @@
+# =============================================================================
+# TESLA Training Configuration
+# =============================================================================
+# Usage:
+#   ContentNet:   python train_lightning.py --config configs/tesla_train.yaml --stage contentnet
+#   ProTPSR 4→2:  python train_lightning.py --config configs/tesla_train.yaml --stage prog_4to2
+#   ProTPSR 2→1:  python train_lightning.py --config configs/tesla_train.yaml --stage prog_2to1
+#   TESLA:        python train_lightning.py --config configs/tesla_train.yaml --stage tesla
+# =============================================================================
+
+# Stage selection: contentnet | prog_4to2 | prog_2to1 | tesla
+# (Legacy integer values also accepted: 1 = contentnet, 2 = tesla)
+stage: "tesla"
+contentnet_ckpt_path: "ckpts/contentnet/gen_0100.pt"  # ContentNet ckpt for TESLA stage
+
+# W&B logging
+wandb:
+  project: "tesla-sr"
+  run_name: null       # auto-generated if null
+  entity: null
+  log_images_every_n_epochs: 1
+  num_display_images: 4  # number of sample images to log per epoch
+
+# Device — supports single or multi-GPU
+# Examples: gpu: "4" (single), gpu: "5,7" (multi-GPU DDP)
+gpu: "4"
+strategy: "auto"       # "auto" for single GPU, "ddp" for multi-GPU (auto-detected)
+
+# Data
+data:
+  dataset: "IXI"
+  ixi_h5_dir: "./data/ixi/"
+  nb_train_imgs: 4000
+  nb_test_imgs: 1000
+  crf_domain: "t1"       # edge conditioning domain [t1/pd/t2/srt2/none]
+  sr_scale: 4
+  hr_pd: false            # use PD as reference instead of T1
+
+# Training
+training:
+  epochs: 100
+  batch_size: 8
+  workers: 4
+  gen_lr: 0.0001
+  dis_lr: 0.0001
+  beta1: 0.5
+  beta2: 0.999
+  weight_decay: 0.0001
+  lr_policy: "step"       # [step/plateau/constant]
+  step_size: 30
+  gamma: 0.5
+  patience: 10            # for plateau scheduler
+  factor: 0.1             # for plateau scheduler
+  init: "kaiming"         # weight init [gaussian/kaiming/xavier/orthogonal]
+  generator_steps: 1
+  discriminator_steps: 1
+  model_save_step: 5      # save ckpt every N epochs
+
+# Model architecture
+model:
+  # Generator (AdaINGen)
+  gen_dim: 64
+  gen_mlp_dim: 256
+  gen_style_dim: 8
+  gen_activ: "relu"
+  gen_n_downsample: 2
+  gen_n_res: 4
+  gen_pad_type: "reflect"
+  input_ch_a: 1
+  input_ch_b: 1
+
+  # Discriminator (PatchGAN)
+  dis_dim: 64
+  dis_norm: "none"
+  dis_activ: "lrelu"
+  dis_n_layer: 4
+  dis_gan_type: "lsgan"
+  dis_num_scales: 3
+  dis_pad_type: "reflect"
+
+# Loss weights
+loss:
+  gan_w: 1.0
+  recon_l1_x_w: 10.0
+  recon_l1_s_w: 1.0
+  recon_l1_c_w: 1.0
+  recon_l1_cyc_w: 0.0
+  recon_ssim_x_w: 1.0
+  recon_ssim_c_w: 0.1
+  recon_ssim_cyc_w: 0.0
+  recon_x_cyc_w: 0.0
+  recon_patchnce_w: 1.0
+  dc_l1_w: 1.0
+  dc_ssim_w: 0.1
+
+# Data consistency
+dc:
+  dc_avg: false
+  dc_monai: true
+  dc_monai_method: "area"   # [area/linear/nearest]
+
+# PatchNCE settings
+nce:
+  nce: true
+  nce_idt: false
+  nce_layers: [0, 1, 2]
+  nce_T: 0.07
+  lambda_NCE: 1.0
+  num_patches: 256
+  netF: "mlp_sample"        # [sample/reshape/mlp_sample]
+  netF_nc: 256
+  nce_includes_all_negatives_from_minibatch: false
+
+# Progressive through-plane SR (ProTPSR)
+progressive:
+  l1_w: 10.0
+  ssim_w: 1.0
+  perceptual_w: 0.0           # VGG perceptual loss (0 = disabled)
+  dc_l1_w: 1.0
+  dc_ssim_w: 0.1
+  prog_4to2_ckpt_path: null   # frozen prog_4to2 model path (required for prog_2to1 & tesla)
+  prog_2to1_ckpt_path: null   # frozen prog_2to1 model path (required for tesla)
+
+# Directories
+dirs:
+  log_dir: "logs/tesla/"
+  ckpt_dir_tesla: "ckpts/tesla/"
+  ckpt_dir_ContentNet: "ckpts/contentnet/"
+  ckpt_dir_progressive: "ckpts/progressive/"
