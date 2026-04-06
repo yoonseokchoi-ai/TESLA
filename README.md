@@ -139,13 +139,17 @@ cd ckpts && git lfs pull && cd ..
 ```
 ckpts/
 ├── contentnet/
-│   └── lightning/                # ContentNet checkpoints
+│   └── lightning/
+│       └── last.ckpt             # ContentNet (SSIM 0.9982)
 ├── progressive/
 │   └── lightning/
-│       ├── prog_4to2/           # ProTPSR 4→2 checkpoints
-│       └── prog_2to1/           # ProTPSR 2→1 checkpoints
+│       ├── prog_4to2/
+│       │   └── last.ckpt         # ProTPSR 4→2 (SSIM 0.9407)
+│       └── prog_2to1/
+│           └── last.ckpt         # ProTPSR 2→1 (SSIM 0.9205)
 └── tesla/
-    └── lightning/                # TESLA checkpoints
+    └── lightning/
+        └── last.ckpt             # TESLA (SSIM 0.9198)
 ```
 
 ---
@@ -249,7 +253,7 @@ Inference produces two files in the output directory:
 
 | Key | Shape | Description |
 |-----|-------|-------------|
-| `x_lr` | `(N, 1, 32, 256)` | Original 4x degraded input |
+| `x_lr` | `(N, 1, 128, 256)` | Original 4x degraded input (interpolated to HR size) |
 | `x_protpsr` | `(N, 1, 128, 256)` | ProTPSR output (progressive SR) |
 | `x_sr` | `(N, 1, 128, 256)` | TESLA final SR output |
 | `x_hr` | `(N, 1, 128, 256)` | HR ground truth |
