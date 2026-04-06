@@ -11,7 +11,9 @@
 # Stage selection: contentnet | prog_4to2 | prog_2to1 | tesla
 # (Legacy integer values also accepted: 1 = contentnet, 2 = tesla)
 stage: "tesla"
-contentnet_ckpt_path: "ckpts/contentnet/gen_0100.pt"  # ContentNet ckpt for TESLA stage
+# Path to ContentNet checkpoint for TESLA stage
+# ⚠ Update this to your own checkpoint path (e.g., ckpts/contentnet/lightning/last.ckpt)
+contentnet_ckpt_path: "ckpts/contentnet/lightning/last.ckpt"
 
 # W&B logging
 wandb:
@@ -22,14 +24,14 @@ wandb:
   num_display_images: 4  # number of sample images to log per epoch
 
 # Device — supports single or multi-GPU
-# Examples: gpu: "4" (single), gpu: "5,7" (multi-GPU DDP)
-gpu: "4"
+# ⚠ Update to your available GPU id (e.g., "0" for single, "0,1" for multi-GPU DDP)
+gpu: "0"
 strategy: "auto"       # "auto" for single GPU, "ddp" for multi-GPU (auto-detected)
 
 # Data
 data:
   dataset: "IXI"
-  ixi_h5_dir: "./data/ixi/"
+  ixi_h5_dir: "./data/ixi/"     # ⚠ Update to your dataset path
   nb_train_imgs: 4000
   nb_test_imgs: 1000
   crf_domain: "t1"       # edge conditioning domain [t1/pd/t2/srt2/none]
@@ -118,8 +120,9 @@ progressive:
   perceptual_w: 0.0           # VGG perceptual loss (0 = disabled)
   dc_l1_w: 1.0
   dc_ssim_w: 0.1
-  prog_4to2_ckpt_path: null   # frozen prog_4to2 model path (required for prog_2to1 & tesla)
-  prog_2to1_ckpt_path: null   # frozen prog_2to1 model path (required for tesla)
+  # ⚠ Update these to your own checkpoint paths
+  prog_4to2_ckpt_path: null   # frozen prog_4to2 ckpt (required for prog_2to1 & tesla stage)
+  prog_2to1_ckpt_path: null   # frozen prog_2to1 ckpt (required for tesla stage)
 
 # Directories
 dirs:

@@ -9,17 +9,18 @@
 # =============================================================================
 
 # Checkpoint paths
+# ⚠ Update these to your own checkpoint paths after training
 ckpt_path:
-  tesla: "ckpts/tesla/lightning/tesla-epoch=0099-val_ssim=0.9198.ckpt"
-  contentnet: "ckpts/contentnet/lightning/contentnet-epoch=0034-val_ssim=0.9982.ckpt"
-  prog_4to2: "ckpts/progressive/lightning/prog_4to2/prog_4to2-epoch=0079-val_ssim=0.9411.ckpt"
-  prog_2to1: "ckpts/progressive/lightning/prog_2to1/prog_2to1-epoch=0099-val_ssim=0.9205.ckpt"
+  tesla: "ckpts/tesla/lightning/last.ckpt"
+  contentnet: "ckpts/contentnet/lightning/last.ckpt"
+  prog_4to2: "ckpts/progressive/lightning/prog_4to2/last.ckpt"
+  prog_2to1: "ckpts/progressive/lightning/prog_2to1/last.ckpt"
 
 # Output
 output_dir: "outputs/tesla_inference/"
 
-# Device
-gpu: "2"
+# Device — ⚠ Update to your available GPU id
+gpu: "0"
 
 # Inference settings
 batch_size: 1
@@ -28,7 +29,7 @@ num_workers: 4
 # Data (must match training config)
 data:
   dataset: "IXI"
-  ixi_h5_dir: "./data/ixi/"
+  ixi_h5_dir: "./data/ixi/"     # ⚠ Update to your dataset path
   nb_train_imgs: 4000
   nb_test_imgs: 1000
   crf_domain: "t1"
